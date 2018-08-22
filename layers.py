@@ -53,12 +53,12 @@ def align_block(u, v, c_mask, q_mask, Lambda, filters=128, E_0=None, B_0=None, Z
 
     return R, Z, E_t, B_t
 
-def summary_vector(q_emb, q_maxlen, mask):
+def summary_vector(q_emb, c_maxlen, mask):
     with tf.variable_scope("Question_Summary"):
         alpha = tf.nn.softmax(exp_mask(tf.squeeze(conv1d(q_emb, 1, 1), axis=-1), mask))
         s = tf.expand_dims(alpha, axis=-1) * q_emb
         s = tf.reduce_sum(s, axis=1, keepdims=True) # [bs, 1, dim]
-        s = tf.tile(s, [1, q_maxlen, 1]) # [bs, len_q, dim]
+        s = tf.tile(s, [1, c_maxlen, 1]) # [bs, len_c, dim]
     return s
 
 def start_logits(R, s, mask, filters=128):
@@ -72,7 +72,6 @@ def start_logits(R, s, mask, filters=128):
 def end_logits(R, logits1, s, mask, filters=128):
     with tf.variable_scope("End_Pointer"):
         l = R * tf.expand_dims(logits1, axis=-1) # [bs, len_c, dim]
-        s = tf.reduce_mean(s, axis=1, keepdims=True) # [bs, 1, dim]
         s_ = tf.concat([s, l, s * l, s - l], axis=-1)
         x = tf.nn.relu(conv1d(s_, filters, 1, name='Wr')) # [bs, len_c, dim]
         g = tf.nn.sigmoid(conv1d(s_, filters, 1, name='Wg'))  # [bs, len_c, dim]

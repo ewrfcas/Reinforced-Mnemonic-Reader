@@ -37,12 +37,6 @@ class Model(object):
         self.contw_strings = tf.placeholder(tf.string, [None, self.cont_limit], 'contw_strings')
         self.quesw_strings = tf.placeholder(tf.string, [None, self.ques_limit], 'quesw_strings')
 
-        # elmo features
-        if self.elmo_path is not None:
-            elmo = hub.Module(self.elmo_path, trainable=True)
-            self.cont_elmo = elmo(inputs={"tokens": self.contw_strings, "sequence_len": self.cont_len}, signature="tokens", as_dict=True)["elmo"]
-            self.ques_elmo = elmo(inputs={"tokens": self.quesw_strings, "sequence_len": self.ques_len}, signature="tokens", as_dict=True)["elmo"]
-
         # get mask & length for words & chars
         self.c_mask = tf.cast(self.contw_input_, tf.bool)
         self.q_mask = tf.cast(self.quesw_input_, tf.bool)
@@ -50,6 +44,16 @@ class Model(object):
         self.qh_mask = tf.cast(self.quesc_input_, tf.bool)
         self.cont_len = tf.reduce_sum(tf.cast(self.c_mask, tf.int32), axis=1)
         self.ques_len = tf.reduce_sum(tf.cast(self.q_mask, tf.int32), axis=1)
+
+        # elmo features
+        if self.elmo_path is not None:
+            elmo = hub.Module(self.elmo_path, trainable=True)
+            self.cont_elmo = \
+            elmo(inputs={"tokens": self.contw_strings, "sequence_len": self.cont_len}, signature="tokens",
+                 as_dict=True)["elmo"]
+            self.ques_elmo = \
+            elmo(inputs={"tokens": self.quesw_strings, "sequence_len": self.ques_len}, signature="tokens",
+                 as_dict=True)["elmo"]
 
         # slice for maxlen in each batch
         self.c_maxlen = tf.reduce_max(self.cont_len)
@@ -70,7 +74,7 @@ class Model(object):
         # initial model & complie
         self.build_model()
         total_params()
-        # self.complie()
+        self.complie()
 
     def build_model(self):
         with tf.variable_scope("Input_Embedding_Layer"):
@@ -78,12 +82,12 @@ class Model(object):
                 # char embedding
                 ch_emb = tf.reshape(tf.nn.embedding_lookup(self.char_mat, self.contc_input), [-1, self.char_limit, self.char_dim])
                 qh_emb = tf.reshape(tf.nn.embedding_lookup(self.char_mat, self.quesc_input), [-1, self.char_limit, self.char_dim])
-                ch_mask = tf.reshape(self.ch_mask, [-1, self.char_limit, 1])
-                qh_mask = tf.reshape(self.qh_mask, [-1, self.char_limit, 1])
+                ch_mask = tf.reshape(self.ch_mask, [-1, self.char_limit])
+                qh_mask = tf.reshape(self.qh_mask, [-1, self.char_limit])
 
                 char_bilstm = layers.Bidirectional(layers.LSTM(self.char_dim, name='char_bilstm'))
-                ch_emb = char_bilstm(ch_emb, mask=ch_mask)
-                qh_emb = char_bilstm(qh_emb, mask=qh_mask)
+                ch_emb = char_bilstm(ch_emb) # TODO: mask=ch_mask
+                qh_emb = char_bilstm(qh_emb) # TODO: mask=qh_mask
                 ch_emb = tf.reshape(ch_emb, [-1, self.c_maxlen, ch_emb.shape[-1]])
                 qh_emb = tf.reshape(qh_emb, [-1, self.q_maxlen, ch_emb.shape[-1]])
 
@@ -139,7 +143,7 @@ class Model(object):
 
         with tf.variable_scope("Answer_Pointer"):
             # logits
-            s = summary_vector(q_emb, self.q_maxlen, mask=self.q_mask)
+            s = summary_vector(q_emb, self.c_maxlen, mask=self.q_mask)
             logits1 = start_logits(R, s, mask=self.c_mask, filters=self.filters)
             logits2 = end_logits(R, logits1, s, mask=self.c_mask, filters=self.filters)
 
@@ -162,17 +166,17 @@ class Model(object):
             self.output1 = tf.argmax(tf.reduce_max(outer, axis=2), axis=1)
             self.output2 = tf.argmax(tf.reduce_max(outer, axis=1), axis=1)
 
-            # EMA
-            if self.decay is not None:
-                self.var_ema = tf.train.ExponentialMovingAverage(self.decay)
-                ema_op = self.var_ema.apply(tf.trainable_variables())
-                with tf.control_dependencies([ema_op]):
-                    self.loss = tf.identity(self.loss)
-                    self.assign_vars = []
-                    for var in tf.global_variables():
-                        v = self.var_ema.average(var)
-                        if v is not None:
-                            self.assign_vars.append(tf.assign(var, v))
+        # EMA
+        if self.decay is not None:
+            self.var_ema = tf.train.ExponentialMovingAverage(self.decay)
+            ema_op = self.var_ema.apply(tf.trainable_variables())
+            with tf.control_dependencies([ema_op]):
+                self.loss = tf.identity(self.loss)
+                self.assign_vars = []
+                for var in tf.global_variables():
+                    v = self.var_ema.average(var)
+                    if v is not None:
+                        self.assign_vars.append(tf.assign(var, v))
 
     def complie(self):
         self.global_step = tf.get_variable('global_step', shape=[], dtype=tf.int32,
@@ -184,22 +188,22 @@ class Model(object):
         self.train_op = self.opt.apply_gradients(zip(capped_grads, variables), global_step=self.global_step)
 
 
-config = {
-    'char_dim': 64,
-    'cont_limit': 400,
-    'ques_limit': 50,
-    'char_limit': 16,
-    'ans_limit': 50,
-    'filters': 128,
-    'num_heads': 1,
-    'dropout': 0.1,
-    'l2_norm': 3e-7,
-    'decay': 0.9999,
-    'learning_rate': 8e-4,
-    'grad_clip': 5.0,
-    'batch_size': 32,
-    'epoch': 25,
-    'init_lambda': 3,
-    'path': 'RMRV0'
-}
-model=Model(config=config, word_mat=np.random.random((10000,300)), char_mat=np.random.random((1000,64)))
+# config = {
+#     'char_dim': 64,
+#     'cont_limit': 400,
+#     'ques_limit': 50,
+#     'char_limit': 16,
+#     'ans_limit': 50,
+#     'filters': 100,
+#     'num_heads': 1,
+#     'dropout': 0.1,
+#     'l2_norm': 3e-7,
+#     'decay': 0.9999,
+#     'learning_rate': 8e-4,
+#     'grad_clip': 5.0,
+#     'batch_size': 32,
+#     'epoch': 10,
+#     'init_lambda': 3.0,
+#     'path': 'RMRV0'
+# }
+# model=Model(config=config, word_mat=np.random.random((10000,300)), char_mat=np.random.random((1000,64)))
