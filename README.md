@@ -19,5 +19,7 @@ RMR: https://arxiv.org/abs/1705.02798
 
 ## Results
 Result on dev set of squad
+
 ![result1](./pics/result1.jpg)
+
 EM:70.82% F1:79.51% (22700 steps without RL_loss)
