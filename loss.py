@@ -55,6 +55,6 @@ def rl_loss(logits_start, logits_end, y_start, y_end, c_maxlen, rl_loss_type, to
         reward_greedy = tf.clip_by_value(tf.stop_gradient(greedy_f1 - sampled_f1), 0., 1e7)
         greedy_start_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_start, labels=greedy_start)
         greedy_end_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits_end, labels=greedy_end)
-        return tf.reduce_mean(reward * (sampled_start_loss + sampled_end_loss) + reward_greedy * (greedy_start_loss + greedy_end_loss))
+        return tf.reduce_mean(reward * (sampled_start_loss + sampled_end_loss) + reward_greedy * (greedy_start_loss + greedy_end_loss)), sampled_f1, greedy_f1
     elif rl_loss_type == 'SCST':
         return tf.reduce_mean(reward * (sampled_start_loss + sampled_end_loss)), sampled_f1, greedy_f1

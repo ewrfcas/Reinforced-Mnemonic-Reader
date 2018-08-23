@@ -160,7 +160,7 @@ class Model(object):
             self.theta_a = tf.get_variable('theta_a', dtype=tf.float32, initializer=1.0)
             self.theta_b = tf.get_variable('theta_b', dtype=tf.float32, initializer=1.0)
             if self.rl_loss_type is not None:
-                self.rl_loss = rl_loss(logits1, logits2, self.y_start, self.y_end, self.c_maxlen, self.rl_loss_type)
+                self.rl_loss, self.sampled_f1, self.greedy_f1 = rl_loss(logits1, logits2, self.y_start, self.y_end, self.c_maxlen, self.rl_loss_type)
                 self.loss = (1 / (2 * (self.theta_a ** 2) + 1e-7)) * self.loss + \
                             (1 / (2 * (self.theta_b ** 2) + 1e-7)) * self.rl_loss + \
                             tf.log(self.theta_a ** 2) + tf.log(self.theta_b ** 2)

@@ -129,7 +129,7 @@ with tf.Session(config=sess_config) as sess:
             contw_input, quesw_input, contc_input, quesc_input, contw_string, quesw_string, y_start, y_end \
                 = next_batch(train_set, config['batch_size'], i)
             loss_value, rl_loss_value, theta_a, theta_b, sampled_f1, greedy_f1, _ = sess.run([model.loss, model.rl_loss, model.theta_a, model.theta_b,
-                                                                                              model.train_op],
+                                                                       model.sampled_f1, model.greedy_f1, model.train_op],
                                      feed_dict={model.contw_input_: contw_input, model.quesw_input_: quesw_input,
                                                 model.contc_input_: contc_input, model.quesc_input_: quesc_input,
                                                 model.contw_strings: contw_string, model.quesw_strings: quesw_string,
