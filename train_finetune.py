@@ -6,6 +6,7 @@ import json
 import os
 import util
 import time
+import tensorflow.contrib.slim as slim
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
@@ -84,13 +85,15 @@ config = {
     'dropout': 0.3,
     'l2_norm': 3e-7,
     'decay': 0.9999,
-    'learning_rate': 8e-4,
+    'learning_rate': 1e-4,
     'grad_clip': 5.0,
     'batch_size': 32,
-    'epoch': 25,
+    'epoch': 20,
+    'per_steps': 500,
     'init_lambda': 3.0,
-    'rl_loss_type': None, # ['SCTC', 'DCRL', None]
-    'path': 'RMRV0'
+    'rl_loss_type': 'DCRL', # ['SCTC', 'DCRL', 'topk_DCRL', None]
+    'origin_path': 'RMRV0',
+    'path': 'RMRV0_f'
 }
 
 model = RMR_model.Model(config, word_mat=word_mat, char_mat=char_mat, elmo_path="../QANet_tf/tfhub_elmo")
@@ -106,69 +109,84 @@ with tf.Session(config=sess_config) as sess:
     if not os.path.exists(os.path.join('model', config['path'])):
         os.mkdir(os.path.join('model', config['path']))
     sess.run(tf.global_variables_initializer())
-    saver = tf.train.Saver()
+    variables_to_restore = slim.get_variables_to_restore(include=['Input_Embedding_Layer',
+                                                                  'Iterative_Reattention_Aligner',
+                                                                  'Answer_Pointer'])
+    saver = tf.train.Saver(variables_to_restore)
+    if os.path.exists(os.path.join('model',config['origin_path'],'checkpoint')):
+        saver.restore(sess, tf.train.latest_checkpoint(os.path.join('model',config['origin_path'])))
     n_batch = context_word.shape[0] // config['batch_size']
     n_batch_val = val_context_word.shape[0] // config['batch_size']
+
+    # during the finetune with rl_loss we validate the result per 500 steps
     for epoch in range(config['epoch']):
         train_set = training_shuffle(train_set)
-        t_start = time.time()
         last_train_str = "\r"
         # training step
         sum_loss = 0
+        sum_rl_loss = 0
         for i in range(n_batch):
             contw_input, quesw_input, contc_input, quesc_input, contw_string, quesw_string, y_start, y_end \
                 = next_batch(train_set, config['batch_size'], i)
-            loss_value, _ = sess.run([model.loss, model.train_op],
+            loss_value, rl_loss_value, theta_a, theta_b, sampled_f1, greedy_f1, _ = sess.run([model.loss, model.rl_loss, model.theta_a, model.theta_b,
+                                                                                              model.train_op],
                                      feed_dict={model.contw_input_: contw_input, model.quesw_input_: quesw_input,
                                                 model.contc_input_: contc_input, model.quesc_input_: quesc_input,
                                                 model.contw_strings: contw_string, model.quesw_strings: quesw_string,
                                                 model.y_start_: y_start, model.y_end_: y_end,
                                                 model.dropout: config['dropout']})
             sum_loss += loss_value
-            last_train_str = "\r[epoch:%d/%d, steps:%d/%d] -ETA: %ds -loss: %.4f" % (
-                epoch + 1, config['epoch'], i + 1, n_batch, cal_ETA(t_start, i, n_batch), sum_loss / (i + 1))
+            sum_rl_loss += rl_loss_value
+            last_train_str = "\r[epoch:%d/%d, steps:%d/%d]-loss:%.4f-rl_loss:%.4f" % (
+                epoch + 1, config['epoch'], i + 1, n_batch, loss_value, rl_loss_value)
             print(last_train_str, end='      ', flush=True)
+            # print('sf1:',sampled_f1)
+            # print('gf1:',greedy_f1)
+            if (i+1)%config['per_steps']==0 or i+1==n_batch:
+                # validating step
+                sum_loss_val = 0
+                sum_rl_loss_val = 0
+                y1s = []
+                y2s = []
+                last_val_str = "\r"
+                for i in range(n_batch_val):
+                    contw_input, quesw_input, contc_input, quesc_input, contw_string, quesw_string, y_start, y_end \
+                        = next_batch(val_set, config['batch_size'], i)
+                    loss_value, rl_loss_value, y1, y2 = sess.run([model.loss, model.rl_loss, model.output1, model.output2],
+                                                  feed_dict={model.contw_input_: contw_input,
+                                                             model.quesw_input_: quesw_input,
+                                                             model.contc_input_: contc_input,
+                                                             model.quesc_input_: quesc_input,
+                                                             model.contw_strings: contw_string,
+                                                             model.quesw_strings: quesw_string,
+                                                             model.y_start_: y_start, model.y_end_: y_end})
+                    y1s.append(y1)
+                    y2s.append(y2)
+                    sum_loss_val += loss_value
+                    sum_rl_loss_val += rl_loss_value
+                    last_val_str = last_train_str + "  [validate:%d/%d]-loss:%.4f-rl_loss:%.4f" % (
+                        i + 1, n_batch_val, sum_loss_val / (i + 1), rl_loss_value)
+                    print(last_val_str, end='      ', flush=True)
+                y1s = np.concatenate(y1s)
+                y2s = np.concatenate(y2s)
+                answer_dict, _, noanswer_num = util.convert_tokens(eval_file, val_qid.tolist(), y1s.tolist(),
+                                                                   y2s.tolist(),
+                                                                   data_type=1)
+                metrics = util.evaluate(eval_file, answer_dict)
+                ems.append(metrics['exact_match'])
+                f1s.append(metrics['f1'])
 
-        # validating step
-        sum_loss_val = 0
-        y1s = []
-        y2s = []
-        last_val_str = "\r"
-        for i in range(n_batch_val):
-            contw_input, quesw_input, contc_input, quesc_input, contw_string, quesw_string, y_start, y_end \
-                = next_batch(val_set, config['batch_size'], i)
-            loss_value, y1, y2 = sess.run([model.loss, model.output1, model.output2],
-                                          feed_dict={model.contw_input_: contw_input, model.quesw_input_: quesw_input,
-                                                     model.contc_input_: contc_input, model.quesc_input_: quesc_input,
-                                                     model.contw_strings: contw_string,
-                                                     model.quesw_strings: quesw_string,
-                                                     model.y_start_: y_start, model.y_end_: y_end})
-            y1s.append(y1)
-            y2s.append(y2)
-            sum_loss_val += loss_value
-            last_val_str = last_train_str + "  [validate:%d/%d] -loss: %.4f" % (
-                i + 1, n_batch_val, sum_loss_val / (i + 1))
-            print(last_val_str, end='      ', flush=True)
-        y1s = np.concatenate(y1s)
-        y2s = np.concatenate(y2s)
-        answer_dict, _, noanswer_num = util.convert_tokens(eval_file, val_qid.tolist(), y1s.tolist(), y2s.tolist(),
-                                                           data_type=1)
-        metrics = util.evaluate(eval_file, answer_dict)
-        ems.append(metrics['exact_match'])
-        f1s.append(metrics['f1'])
+                if metrics['f1'] > best_f1:
+                    best_f1 = metrics['f1']
+                    saver.save(sess, os.path.join('model', config['path'], 'model.ckpt'),
+                               global_step=(epoch + 1) * n_batch)
 
-        if metrics['f1'] > best_f1:
-            best_f1 = metrics['f1']
-            saver.save(sess, os.path.join('model', config['path'], 'model.ckpt'), global_step=(epoch + 1) * n_batch)
+                print(last_val_str,
+                      " -EM: %.2f%%, -F1: %.2f%% -Noanswer: %d" % (metrics['exact_match'], metrics['f1'], noanswer_num),
+                      end=' ', flush=True)
+                print('\n')
 
-        print(last_val_str,
-              " -EM: %.2f%%, -F1: %.2f%% -Noanswer: %d" % (metrics['exact_match'], metrics['f1'], noanswer_num),
-              end=' ', flush=True)
-        print('\n')
+                result = pd.DataFrame([ems, f1s], index=['em', 'f1']).transpose()
+                result.to_csv('log/result_' + config['path'] + '.csv', index=None)
 
-        result = pd.DataFrame([ems, f1s], index=['em', 'f1']).transpose()
-        result.to_csv('log/result_'+config['path']+'.csv', index=None)
-
-    saver.save(sess, os.path.join('model', config['path'], 'model.ckpt'), global_step=config['epoch'] * n_batch)
-
-
+        saver.save(sess, os.path.join('model', config['path'], 'model.ckpt'), global_step=config['epoch'] * n_batch)

@@ -2,6 +2,7 @@ import tensorflow as tf
 from layers import total_params, align_block, summary_vector, start_logits, end_logits
 import tensorflow_hub as hub
 from tensorflow.contrib.keras import layers
+from loss import rl_loss
 import numpy as np
 
 class Model(object):
@@ -20,6 +21,7 @@ class Model(object):
         self.learning_rate = config['learning_rate']
         self.grad_clip = config['grad_clip']
         self.init_lambda = config['init_lambda']
+        self.rl_loss_type = config['rl_loss_type']
         self.elmo_path = elmo_path
         self.dropout = tf.placeholder_with_default(0.0, (), name="dropout")
 
@@ -105,9 +107,10 @@ class Model(object):
             q_emb = tf.nn.dropout(q_emb, 1.0 - self.dropout)
 
             # BiLSTM Embedding
-            inputs_bilstm = layers.Bidirectional(layers.LSTM(self.filters//2, name='inputs_bilstm', return_sequences=True))
-            c_emb = tf.nn.dropout(inputs_bilstm(c_emb, mask=self.c_mask), 1.0 - self.dropout)
-            q_emb = tf.nn.dropout(inputs_bilstm(q_emb, mask=self.q_mask), 1.0 - self.dropout)
+            with tf.variable_scope("BiLSTM_Embedding_Layer"):
+                inputs_bilstm = layers.Bidirectional(layers.LSTM(self.filters//2, name='inputs_bilstm', return_sequences=True))
+                c_emb = tf.nn.dropout(inputs_bilstm(c_emb, mask=self.c_mask), 1.0 - self.dropout)
+                q_emb = tf.nn.dropout(inputs_bilstm(q_emb, mask=self.q_mask), 1.0 - self.dropout)
 
         with tf.variable_scope("Iterative_Reattention_Aligner"):
             self.Lambda = tf.get_variable('Lambda', dtype=tf.float32, initializer=self.init_lambda)
@@ -147,24 +150,34 @@ class Model(object):
             logits1 = start_logits(R, s, mask=self.c_mask, filters=self.filters)
             logits2 = end_logits(R, logits1, s, mask=self.c_mask, filters=self.filters)
 
-            # get loss
-            start_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits1, labels=self.y_start)
-            end_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits2, labels=self.y_end)
-            self.loss = tf.reduce_mean(start_loss + end_loss)
+        # maximum-likelihood (ML) loss
+        start_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits1, labels=self.y_start)
+        end_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=logits2, labels=self.y_end)
+        self.loss = tf.reduce_mean(start_loss + end_loss)
 
-            # l2 loss
-            if self.l2_norm is not None:
-                decay_costs = []
-                for var in tf.trainable_variables():
-                    decay_costs.append(tf.nn.l2_loss(var))
-                self.loss += tf.multiply(self.l2_norm, tf.add_n(decay_costs))
+        # self-critical loss
+        with tf.variable_scope("Reinforcement_Loss"):
+            self.theta_a = tf.get_variable('theta_a', dtype=tf.float32, initializer=1.0)
+            self.theta_b = tf.get_variable('theta_b', dtype=tf.float32, initializer=1.0)
+            if self.rl_loss_type is not None:
+                self.rl_loss = rl_loss(logits1, logits2, self.y_start, self.y_end, self.c_maxlen, self.rl_loss_type)
+                self.loss = (1 / (2 * (self.theta_a ** 2) + 1e-7)) * self.loss + \
+                            (1 / (2 * (self.theta_b ** 2) + 1e-7)) * self.rl_loss + \
+                            tf.log(self.theta_a ** 2) + tf.log(self.theta_b ** 2)
 
-            # output
-            outer = tf.matmul(tf.expand_dims(tf.nn.softmax(logits1), axis=2),
-                              tf.expand_dims(tf.nn.softmax(logits2), axis=1))
-            outer = tf.matrix_band_part(outer, 0, self.ans_limit)
-            self.output1 = tf.argmax(tf.reduce_max(outer, axis=2), axis=1)
-            self.output2 = tf.argmax(tf.reduce_max(outer, axis=1), axis=1)
+        # l2 loss
+        if self.l2_norm is not None:
+            decay_costs = []
+            for var in tf.trainable_variables():
+                decay_costs.append(tf.nn.l2_loss(var))
+            self.loss += tf.multiply(self.l2_norm, tf.add_n(decay_costs))
+
+        # output
+        outer = tf.matmul(tf.expand_dims(tf.nn.softmax(logits1), axis=2),
+                          tf.expand_dims(tf.nn.softmax(logits2), axis=1))
+        outer = tf.matrix_band_part(outer, 0, self.ans_limit)
+        self.output1 = tf.argmax(tf.reduce_max(outer, axis=2), axis=1, name='start_output')
+        self.output2 = tf.argmax(tf.reduce_max(outer, axis=1), axis=1, name='end_output')
 
         # EMA
         if self.decay is not None:
@@ -196,7 +209,7 @@ class Model(object):
 #     'ans_limit': 50,
 #     'filters': 100,
 #     'num_heads': 1,
-#     'dropout': 0.1,
+#     'dropout': 0.3,
 #     'l2_norm': 3e-7,
 #     'decay': 0.9999,
 #     'learning_rate': 8e-4,
@@ -204,6 +217,7 @@ class Model(object):
 #     'batch_size': 32,
 #     'epoch': 10,
 #     'init_lambda': 3.0,
+#     'rl_loss_type': 'SCTC', # ['SCTC', 'DCRL', None]
 #     'path': 'RMRV0'
 # }
 # model=Model(config=config, word_mat=np.random.random((10000,300)), char_mat=np.random.random((1000,64)))
