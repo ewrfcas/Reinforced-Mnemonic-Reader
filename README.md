@@ -15,6 +15,7 @@ RMR: https://arxiv.org/abs/1705.02798
 ## Updates
 - [x] Init for the RMR model (without dynamic-critical reinforcement learning DCRL)
 - [x] Add the self-critical sequence training (SCST) (no test)
+- [ ] Test the RL loss
 
 ## Results
 Result on dev set of squad
