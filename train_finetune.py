@@ -137,8 +137,8 @@ with tf.Session(config=sess_config) as sess:
                                                 model.dropout: config['dropout']})
             sum_loss += loss_value
             sum_rl_loss += rl_loss_value
-            last_train_str = "\r[epoch:%d/%d, steps:%d/%d]-loss:%.4f-rl_loss:%.4f" % (
-                epoch + 1, config['epoch'], i + 1, n_batch, loss_value, rl_loss_value)
+            last_train_str = "\r[epoch:%d/%d, steps:%d/%d] loss:%.4f rl_loss:%.4f" % (
+                epoch + 1, config['epoch'], i + 1, n_batch, sum_loss/(i+1), rl_loss_value)
             print(last_train_str, end='      ', flush=True)
             # print('sf1:',sampled_f1)
             # print('gf1:',greedy_f1)
@@ -164,7 +164,7 @@ with tf.Session(config=sess_config) as sess:
                     y2s.append(y2)
                     sum_loss_val += loss_value
                     sum_rl_loss_val += rl_loss_value
-                    last_val_str = last_train_str + "  [validate:%d/%d]-loss:%.4f-rl_loss:%.4f" % (
+                    last_val_str = last_train_str + " [validate:%d/%d] loss:%.4f rl_loss:%.4f" % (
                         i + 1, n_batch_val, sum_loss_val / (i + 1), rl_loss_value)
                     print(last_val_str, end='      ', flush=True)
                 y1s = np.concatenate(y1s)
