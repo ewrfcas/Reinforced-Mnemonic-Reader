@@ -36,7 +36,7 @@ def align_block(u, v, c_mask, q_mask, Lambda, filters=128, E_0=None, B_0=None, Z
 
         # fusion
         hh = tf.concat([h, h_B, h * h_B, h - h_B], axis=-1)
-        x = tf.nn.relu(conv1d(uv, filters, 1, name='Wr'))
+        x = tf.nn.relu(conv1d(hh, filters, 1, name='Wr'))
         g = tf.nn.sigmoid(conv1d(hh, filters, 1, name='Wg'))
         Z = g * x + (1 - g) * h  # [bs, len_c, dim]
 
