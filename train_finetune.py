@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import RMR_model
+import RMR_modelV1
 import tensorflow as tf
 import json
 import os
@@ -96,7 +96,7 @@ config = {
     'path': 'RMRV0_f'
 }
 
-model = RMR_model.Model(config, word_mat=word_mat, char_mat=char_mat, elmo_path="../QANet_tf/tfhub_elmo")
+model = RMR_modelV1.Model(config, word_mat=word_mat, char_mat=char_mat, elmo_path="../QANet_tf/tfhub_elmo")
 sess_config = tf.ConfigProto(allow_soft_placement=True)
 sess_config.gpu_options.allow_growth = True
 
