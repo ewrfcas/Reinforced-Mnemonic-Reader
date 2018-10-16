@@ -9,7 +9,7 @@ RMR: https://arxiv.org/abs/1705.02798
 1. `conv1d` in `tensor2tensor` is used to instead of the matrix matmul (full connection) operation in RMR model.
 2. Welcome to discuss any problem about this project (especially the RL loss).
 3. The reinforcement loss should be used after the convergence of cross-entropy.
-4. RMR_modelV1 is based on the version 3, and RMR_modelV0 is based on the version 6 of [https://arxiv.org/abs/1705.02798v3]. It seems that v3 performs better than v6.
+4. RMR_modelV3 is based on the version 3, and RMR_modelV6 is based on the version 6 of [https://arxiv.org/abs/1705.02798v3]. It seems that v3 performs better than v6.
 
 ## Updates
 - [x] Init for the RMR model (without dynamic-critical reinforcement learning DCRL)
