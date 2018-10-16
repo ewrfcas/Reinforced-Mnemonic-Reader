@@ -5,6 +5,7 @@ import RMR_modelV1 as RMR
 import tensorflow.contrib.slim as slim
 from util.util import *
 import tensorflow as tf
+import ipdb
 import pandas as pd
 from util.h5py_generator import Generator
 from util.log_wrapper import create_logger
@@ -13,7 +14,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '4'
 
 if __name__ == '__main__':
 
-    data_source = 'dataset2'
+    data_source = 'dataset'
 
     config = {
         'char_dim': 300,
@@ -23,10 +24,10 @@ if __name__ == '__main__':
         'ans_limit': -1,
         'filters': 128,
         'char_filters': 100,
-        'dropout': 0.2,
-        'dropout_emb': 0.2,
-        'dropout_att': 0.0,
-        'dropout_rnn': 0.2,
+        'dropout': 0.175,
+        'dropout_emb': 0.15,
+        'dropout_att': 0.2,
+        'dropout_rnn': 0.15,
         'l2_norm': 3e-7,
         'decay': 1,
         'gamma_b': 0.3,
@@ -50,7 +51,7 @@ if __name__ == '__main__':
         'batch_size': 32,
         'epoch': 30,
         'origin_path': None,  # not finetune
-        'path': 'RMRV101'
+        'path': 'RMRV102'
     }
 
     global logger
@@ -102,13 +103,13 @@ if __name__ == '__main__':
 
         use_rl=False
         for i_epoch in range(config['epoch']):
-#             if (i_epoch + 1) % 8 == 0:
-#                 config['learning_rate'] *= 0.5
-#                 logger.warning('learning rate reduce to:' + str(config['learning_rate']))
-                # if config['learning_rate'] <= 2.5e-4:
-                #     use_rl=True
-                #     logger.warning('rl loss start...')
-                #     config['rlw'] = config['rlw2']
+            if (i_epoch + 1) % 8 == 0:
+                config['learning_rate'] *= 0.5
+            #     logger.warning('learning rate reduce to:' + str(config['learning_rate']))
+            #     if config['learning_rate'] <= 2.5e-4:
+            #         use_rl=True
+            #         logger.warning('rl loss start...')
+            #         config['rlw'] = config['rlw2']
 
             sum_loss = 0
             for i_batch in range(train_gen.max_batch):
@@ -143,7 +144,18 @@ if __name__ == '__main__':
                     loss_value, _ = sess.run([model.loss, model.ema_train_op], feed_dict=feed_dict_)
                 else:
                     loss_value, _ = sess.run([model.loss, model.train_op], feed_dict=feed_dict_)
+                char_mat = sess.run(model.char_mat)
+#                 ipdb.set_trace()
+                char_mat[-char_mat_fix.shape[0]:,::] = char_mat_fix
+                _ = sess.run(model.assign_char_mat, feed_dict={model.old_char_mat:char_mat})
                 sum_loss += loss_value
+
+                # # check embedding
+                # fix_feat, tra_feat = sess.run([model.char_mat[-93:, :], model.char_mat[0:1140, :]])
+                # fix_feat = np.sum(fix_feat)
+                # tra_feat = np.sum(tra_feat)
+                # print('fix:', fix_feat)
+                # print('trainable:', tra_feat)
 
                 last_train_str = "[epoch:%d/%d, steps:%d/%d] -loss:%.4f" % (i_epoch + 1, config['epoch'], i_batch + 1,
                                                                             train_gen.max_batch,
@@ -193,7 +205,7 @@ if __name__ == '__main__':
             y1s = np.concatenate(y1s)
             y2s = np.concatenate(y2s)
             answer_dict, _, noanswer_num = convert_tokens(eval_file, dev_qid.tolist(), y1s.tolist(),
-                                                          y2s.tolist(), data_type=2)
+                                                          y2s.tolist(), data_type=1)
             metrics = evaluate(eval_file, answer_dict)
             ems.append(metrics['exact_match'])
             f1s.append(metrics['f1'])

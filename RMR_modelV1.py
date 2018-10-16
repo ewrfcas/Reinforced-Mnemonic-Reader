@@ -4,7 +4,8 @@ from layers import total_params, align_block, summary_vector, start_logits, end_
 from bilm import BidirectionalLanguageModel, all_layers
 from keras.models import load_model
 from loss import rl_loss
-
+import numpy as np
+from util.Adamax import AdaMaxOptimizer
 
 class Model(object):
     def __init__(self, config, word_mat=None, char_mat_trainable=None, char_mat_fix=None, test=False):
@@ -37,15 +38,9 @@ class Model(object):
         self.rlw = tf.placeholder_with_default(0.0, (), name="rlloss_weights")
 
         # embedding layer
-        self.word_mat = tf.get_variable("word_mat", initializer=tf.constant(word_mat, dtype=tf.float32),
-                                        trainable=False)
+        self.word_mat = tf.get_variable("word_mat", initializer=tf.constant(word_mat, dtype=tf.float32), trainable=False)
         with tf.variable_scope("Input_Embedding_Mat"):
-            self.char_mat_trainable = tf.get_variable("char_mat_trainable",
-                                                      initializer=tf.constant(char_mat_trainable, dtype=tf.float32),
-                                                      trainable=True)
-            self.char_mat_fix = tf.get_variable("char_mat_fix", initializer=tf.constant(char_mat_fix, dtype=tf.float32),
-                                                trainable=False)
-            self.char_mat = tf.concat([char_mat_trainable, char_mat_fix], axis=0)
+            self.char_mat = tf.get_variable("char_mat", initializer=np.concatenate([char_mat_trainable, char_mat_fix], axis=0), trainable=True)
 
         # input tensor
         self.contw_input = tf.placeholder(tf.int32, [None, None], "context_word")
@@ -59,6 +54,8 @@ class Model(object):
         if self.use_feat:
             self.cont_feat = tf.placeholder(tf.float32, [None, None, 73], "cont_feat")
             self.ques_feat = tf.placeholder(tf.float32, [None, None, 73], "ques_feat")
+        self.old_char_mat = tf.placeholder(tf.float32, [None, None], "old_char_mat")
+        self.assign_char_mat = tf.assign(self.char_mat, self.old_char_mat)
 
         # get mask & length for words & chars
         self.c_mask = tf.cast(self.contw_input, tf.bool)
@@ -95,8 +92,9 @@ class Model(object):
                                            initializer=tf.constant_initializer(0), trainable=False)
 
         self.learning_rate = tf.placeholder_with_default(config['learning_rate'], (), name="learning_rate")
-        self.lr = tf.minimum(self.learning_rate,
-                             self.learning_rate / tf.log(999.) * tf.log(tf.cast(self.global_step, tf.float32) + 1))
+        self.lr = self.learning_rate
+        # self.lr = tf.minimum(self.learning_rate,
+        #                      self.learning_rate / tf.log(999.) * tf.log(tf.cast(self.global_step, tf.float32) + 1))
 
         # initial model & complie
         self.build_model()
@@ -107,15 +105,14 @@ class Model(object):
         with tf.variable_scope("Input_Embedding_Layer"):
             with tf.variable_scope("Char_Embedding_Layer"):
                 # char embedding
-                ch_emb = tf.reshape(tf.nn.embedding_lookup(self.char_mat, self.contc_input),
-                                    [-1, self.char_limit, self.char_dim])
-                qh_emb = tf.reshape(tf.nn.embedding_lookup(self.char_mat, self.quesc_input),
-                                    [-1, self.char_limit, self.char_dim])
+                ch_emb = tf.reshape(tf.nn.embedding_lookup(self.char_mat, self.contc_input), [-1, self.char_limit, self.char_dim])
+                qh_emb = tf.reshape(tf.nn.embedding_lookup(self.char_mat, self.quesc_input), [-1, self.char_limit, self.char_dim])
                 ch_emb = tf.nn.dropout(ch_emb, 1 - self.dropout_emb)
                 qh_emb = tf.nn.dropout(qh_emb, 1 - self.dropout_emb)
 
-                ch_emb, qh_emb = BiLSTM([ch_emb, qh_emb], self.char_filters // 2, dropout=self.dropout_rnn,
-                                        name='char_lstm', return_state=True)
+                ch_emb, qh_emb = BiLSTM([ch_emb, qh_emb], self.char_filters // 2, dropout=self.dropout_rnn, name='char_lstm')
+                ch_emb = tf.reduce_max(ch_emb, axis=1)
+                qh_emb = tf.reduce_max(qh_emb, axis=1)
                 ch_emb = tf.reshape(ch_emb, [-1, self.c_maxlen, self.char_filters])
                 qh_emb = tf.reshape(qh_emb, [-1, self.q_maxlen, self.char_filters])
 
@@ -249,6 +246,7 @@ class Model(object):
             self.mask_output2 = tf.argmax(tf.reduce_max(outer_masked, axis=1), axis=1)
 
     def complie(self):
+        # self.opt = AdaMaxOptimizer(learning_rate=self.lr, beta1=0.9, beta2=0.999, epsilon=1e-7)
         self.opt = tf.train.AdamOptimizer(learning_rate=self.lr, beta1=0.8, beta2=0.999, epsilon=1e-7)
         grads = self.opt.compute_gradients(self.loss)
         gradients, variables = zip(*grads)

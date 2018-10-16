@@ -8,7 +8,7 @@ import tensorflow as tf
 import pandas as pd
 from util.log_wrapper import create_logger
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '4'
+os.environ["CUDA_VISIBLE_DEVICES"] = '6'
 
 if __name__ == '__main__':
 
@@ -30,13 +30,13 @@ if __name__ == '__main__':
         'gamma_b': 0.3,
         'gamma_c': 1.0,
         'init_lambda': 3.0,
-        'learning_rate': 8e-4,
+        'learning_rate': 1e-3,
         'shuffle_size': 25000,
         'grad_clip': 5.0,
-        'use_elmo': 0,
-        'use_cove': 0,
+        'use_elmo': 1,
+        'use_cove': 1,
         'use_feat': True,
-        'use_rlloss': True,
+        'use_rlloss': False,
         'rlw': 0.0,
         'rlw2': 0.8,
         'optimizer': 'adam',
@@ -48,7 +48,7 @@ if __name__ == '__main__':
         'batch_size': 32,
         'epoch': 25,
         'origin_path': None,  # not finetune
-        'path': 'RMR005'
+        'path': 'RMR200'
     }
 
     global logger
@@ -173,10 +173,21 @@ if __name__ == '__main__':
                         loss_value, _ = sess.run([model.loss, model.ema_train_op], feed_dict=feed_dict_)
                     else:
                         loss_value, _ = sess.run([model.loss, model.train_op], feed_dict=feed_dict_)
+                    char_mat = sess.run(model.char_mat)
+                    char_mat[-char_mat_fix.shape[0]:, ::] = char_mat_fix
+                    _ = sess.run(model.assign_char_mat, feed_dict={model.old_char_mat: char_mat})
                     sum_loss += loss_value
 
-                    last_train_str = "[epoch:%d/%d, steps:%d/%d] -loss:%.4f" % (i_epoch + 1, config['epoch'], i_batch + 1,
-                                                                                train_n_batch, sum_loss / (i_batch + 1))
+                    # check embedding
+                    fix_feat, tra_feat = sess.run([model.char_mat[-93:, :], model.char_mat[0:1140, :]])
+                    fix_feat = np.sum(fix_feat)
+                    tra_feat = np.sum(tra_feat)
+                    print('fix:', fix_feat)
+                    print('trainable:', tra_feat)
+
+                    last_train_str = "[epoch:%d/%d, steps:%d/%d] -loss:%.4f" % (
+                    i_epoch + 1, config['epoch'], i_batch + 1,
+                    train_n_batch, sum_loss / (i_batch + 1))
                     if i_batch > 0:
                         last_train_str += (' -ETA:%ds' % cal_ETA(t_start, i_batch, train_n_batch))
                     if i_batch % 100 == 0:
@@ -235,12 +246,12 @@ if __name__ == '__main__':
                     ems.append(metrics['exact_match'])
                     f1s.append(metrics['f1'])
 
-                    if metrics['f1'] < f1s[-1]:
-                        config['learning_rate'] *= 0.5
-                        logger.warning('learning rate reduce to:' + str(config['learning_rate']))
-                        if config['learning_rate'] <= 1e-4:
-                            logger.warning('rl loss start...')
-                            config['rlw'] = config['rlw2']
+                    # if metrics['f1'] < f1s[-1]:
+                    #     config['learning_rate'] *= 0.5
+                    #     logger.warning('learning rate reduce to:' + str(config['learning_rate']))
+                    #     if config['learning_rate'] <= 1e-4:
+                    #         logger.warning('rl loss start...')
+                    #         config['rlw'] = config['rlw2']
 
                     if ems[-1] > best_em:
                         best_em = ems[-1]

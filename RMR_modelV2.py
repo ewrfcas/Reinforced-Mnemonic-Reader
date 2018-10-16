@@ -4,6 +4,7 @@ from layers import total_params, align_block, summary_vector, start_logits, end_
 from bilm import BidirectionalLanguageModel, all_layers
 from keras.models import load_model
 from loss import rl_loss
+import numpy as np
 
 
 class Model(object):
@@ -39,12 +40,9 @@ class Model(object):
         self.word_mat = tf.get_variable("word_mat", initializer=tf.constant(word_mat, dtype=tf.float32),
                                         trainable=False)
         with tf.variable_scope("Input_Embedding_Mat"):
-            self.char_mat_trainable = tf.get_variable("char_mat_trainable",
-                                                      initializer=tf.constant(char_mat_trainable, dtype=tf.float32),
-                                                      trainable=True)
-            self.char_mat_fix = tf.get_variable("char_mat_fix", initializer=tf.constant(char_mat_fix, dtype=tf.float32),
-                                                trainable=False)
-            self.char_mat = tf.concat([char_mat_trainable, char_mat_fix], axis=0)
+            self.char_mat = tf.get_variable("char_mat",
+                                            initializer=np.concatenate([char_mat_trainable, char_mat_fix], axis=0),
+                                            trainable=True)
 
         # input tensor
         self.contw_input = tf.placeholder(tf.int32, [None, None], "context_word")
@@ -60,6 +58,8 @@ class Model(object):
         if self.use_feat:
             self.cont_feat = tf.placeholder(tf.float32, [None, None, 73], "cont_feat")
             self.ques_feat = tf.placeholder(tf.float32, [None, None, 73], "ques_feat")
+        self.old_char_mat = tf.placeholder(tf.float32, [None, None], "old_char_mat")
+        self.assign_char_mat = tf.assign(self.char_mat, self.old_char_mat)
 
         # get mask & length for words & chars
         self.c_mask = tf.cast(self.contw_input, tf.bool)

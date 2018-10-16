@@ -115,7 +115,7 @@ def start_logits(R, s, mask, filters=128, name='Start_Pointer'):
 
 def end_logits(R, logits1, s, mask, filters=128, name='End_Pointer'):
     with tf.variable_scope(name):
-        l = R * tf.expand_dims(logits1, axis=-1)  # [bs, len_c, dim]
+        l = R * tf.expand_dims(tf.nn.softmax(logits1, axis=-1), axis=-1)  # [bs, len_c, dim]
         if s.get_shape()[-1] == l.get_shape()[-1]:
             s_ = tf.concat([s, l, s * l, s - l], axis=-1)
         else:

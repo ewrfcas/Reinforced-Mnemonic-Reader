@@ -9,16 +9,25 @@ RMR: https://arxiv.org/abs/1705.02798
 1. `conv1d` in `tensor2tensor` is used to instead of the matrix matmul (full connection) operation in RMR model.
 2. Welcome to discuss any problem about this project (especially the RL loss).
 3. The reinforcement loss should be used after the convergence of cross-entropy.
+4. RMR_modelV1 is based on the version 3, and RMR_modelV0 is based on the version 6 of [https://arxiv.org/abs/1705.02798v3]. It seems that v3 performs better than v6.
 
 ## Updates
 - [x] Init for the RMR model (without dynamic-critical reinforcement learning DCRL)
 - [x] Add the self-critical sequence training (SCST) (no test)
 - [x] Update cudnn LSTM and squad 2.0
+- [x] Update v3 in modelV0
 - [ ] Test the RL loss
 
 ## Results
-Result on dev set of squad 1.1
-EM:71.17% F1:79.56% (no elmo, no cove)
 
-Result on dev set of squad 2.0
-EM:64.89% F1:67.81% (+elmo+cove)
+### Result on dev set of squad 1.1
+EM:71.17% F1:79.56% (no elmo, no cove paper v6)
+
+EM:74.37% F1:82.67% (hidden size=256 +elmo v6)
+
+EM:71.94% F1:80.44% (no elmo, no cove paper v3)
+
+EM:72.87% F1:81.47% (pytorch version, based on paper v3)
+
+### Result on dev set of squad 2.0
+EM:64.89% F1:67.81% (+elmo+cove v3)

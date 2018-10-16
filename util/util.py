@@ -12,25 +12,29 @@ https://github.com/HKUST-KnowComp/R-Net
 
 def get_record_parser(config):
     def parser(example):
+        if not config['data_type']:
+            config['data_type'] = 2
         char_limit = config['char_limit']
-        features = tf.parse_single_example(example,
-                                           features={
-                                               "context_ids": tf.FixedLenFeature([], tf.string),
-                                               "ques_ids": tf.FixedLenFeature([], tf.string),
-                                               "context_char_ids": tf.FixedLenFeature([], tf.string),
-                                               "ques_char_ids": tf.FixedLenFeature([], tf.string),
-                                               'context_feat': tf.FixedLenFeature([], tf.string),
-                                               'ques_feat': tf.FixedLenFeature([], tf.string),
-                                               'elmo_context_feat': tf.FixedLenFeature([], tf.string),
-                                               'elmo_question_feat': tf.FixedLenFeature([], tf.string),
-                                               'cove_context_feat': tf.FixedLenFeature([], tf.string),
-                                               'cove_question_feat': tf.FixedLenFeature([], tf.string),
-                                               "y1": tf.FixedLenFeature([], tf.string),
-                                               "y2": tf.FixedLenFeature([], tf.string),
-                                               "y1p": tf.FixedLenFeature([], tf.string),
-                                               "y2p": tf.FixedLenFeature([], tf.string),
-                                               "qid": tf.FixedLenFeature([], tf.int64)
-                                           })
+        features_ = {
+            "context_ids": tf.FixedLenFeature([], tf.string),
+            "ques_ids": tf.FixedLenFeature([], tf.string),
+            "context_char_ids": tf.FixedLenFeature([], tf.string),
+            "ques_char_ids": tf.FixedLenFeature([], tf.string),
+            'context_feat': tf.FixedLenFeature([], tf.string),
+            'ques_feat': tf.FixedLenFeature([], tf.string),
+            'elmo_context_feat': tf.FixedLenFeature([], tf.string),
+            'elmo_question_feat': tf.FixedLenFeature([], tf.string),
+            'cove_context_feat': tf.FixedLenFeature([], tf.string),
+            'cove_question_feat': tf.FixedLenFeature([], tf.string),
+            "y1": tf.FixedLenFeature([], tf.string),
+            "y2": tf.FixedLenFeature([], tf.string),
+            "qid": tf.FixedLenFeature([], tf.int64)
+        }
+        if config['data_type'] == 2:
+            features_['y1p'] = tf.FixedLenFeature([], tf.string)
+            features_['y2p'] = tf.FixedLenFeature([], tf.string)
+
+        features = tf.parse_single_example(example, features=features_)
         context_idxs = tf.reshape(tf.decode_raw(features["context_ids"], tf.int32), [-1])
         ques_idxs = tf.reshape(tf.decode_raw(features["ques_ids"], tf.int32), [-1])
         context_char_idxs = tf.reshape(tf.decode_raw(features["context_char_ids"], tf.int32), [-1, char_limit])
@@ -43,15 +47,24 @@ def get_record_parser(config):
         cove_question_feat = tf.reshape(tf.decode_raw(features['cove_question_feat'], tf.float32), [-1, 2, 600])
         y1 = tf.reshape(tf.decode_raw(features["y1"], tf.int32), [-1])
         y2 = tf.reshape(tf.decode_raw(features["y2"], tf.int32), [-1])
-        y1p = tf.reshape(tf.decode_raw(features["y1p"], tf.int32), [-1])
-        y2p = tf.reshape(tf.decode_raw(features["y2p"], tf.int32), [-1])
+        if config['data_type'] == 2:
+            y1p = tf.reshape(tf.decode_raw(features["y1p"], tf.int32), [-1])
+            y2p = tf.reshape(tf.decode_raw(features["y2p"], tf.int32), [-1])
         # qid = features["qid"]
-        return context_idxs, ques_idxs, \
-               context_char_idxs, ques_char_idxs, \
-               context_feat, ques_feat, \
-               elmo_context_feat, elmo_question_feat, \
-               cove_context_feat, cove_question_feat, \
-               y1, y2, y1p, y2p
+        if config['data_type'] == 2:
+            return context_idxs, ques_idxs, \
+                   context_char_idxs, ques_char_idxs, \
+                   context_feat, ques_feat, \
+                   elmo_context_feat, elmo_question_feat, \
+                   cove_context_feat, cove_question_feat, \
+                   y1, y2, y1p, y2p
+        else:
+            return context_idxs, ques_idxs, \
+                   context_char_idxs, ques_char_idxs, \
+                   context_feat, ques_feat, \
+                   elmo_context_feat, elmo_question_feat, \
+                   cove_context_feat, cove_question_feat, \
+                   y1, y2
 
     return parser
 
