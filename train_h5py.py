@@ -1,11 +1,9 @@
 import os
-import numpy as np
 import json
-import RMR_modelV1 as RMR
+import RMR_modelV6 as RMR
 import tensorflow.contrib.slim as slim
 from util.util import *
 import tensorflow as tf
-import ipdb
 import pandas as pd
 from util.h5py_generator import Generator
 from util.log_wrapper import create_logger

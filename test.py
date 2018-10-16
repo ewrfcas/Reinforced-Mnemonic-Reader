@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import json
-import RMR_modelV2 as RMR
+import RMR_modelV6_squad2 as RMR
 import tensorflow.contrib.slim as slim
 from util.util import *
 import tensorflow as tf
