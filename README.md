@@ -25,7 +25,7 @@ EM:71.17% F1:79.56% (no elmo, no cove paper v6)
 
 EM:74.37% F1:82.67% (hidden size=256 +elmo v6)
 
-EM:71.94% F1:80.44% (no elmo, no cove paper v3)
+EM:72.08% F1:80.51% (no elmo, no cove paper v3)
 
 EM:72.87% F1:81.47% (pytorch version, based on paper v3)
 

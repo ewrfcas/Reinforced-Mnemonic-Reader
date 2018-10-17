@@ -1,6 +1,6 @@
 import tensorflow as tf
 from layersV0 import total_params, align_block, summary_vector, start_logits, end_logits, BiLSTM, ElmoAttention, \
-    ElmoCombineLayer, CoveCombineLayer
+    ElmoCombineLayer, CoveCombineLayer, answer_block
 from bilm import BidirectionalLanguageModel, all_layers
 from keras.models import load_model
 from loss import rl_loss
@@ -163,7 +163,6 @@ class Model(object):
                 c_emb, q_emb = BiLSTM([c_emb, q_emb], self.filters // 2, dropout=self.dropout_rnn, name='encoder')
 
         with tf.variable_scope("Iterative_Reattention_Aligner"):
-            self.Lambda = tf.get_variable('Lambda', dtype=tf.float32, initializer=self.init_lambda)
             with tf.variable_scope("Aligning_Block1"):
                 R = align_block(u=c_emb,
                                 v=q_emb,
@@ -180,26 +179,18 @@ class Model(object):
                                 filters=self.filters,
                                 dropout=self.dropout_rnn)
                 R = tf.nn.dropout(R, 1.0 - self.dropout_att)
-            with tf.variable_scope("Aligning_Block3"):
-                R = align_block(u=R,
-                                v=q_emb,
-                                c_mask=self.c_mask,
-                                q_mask=self.q_mask,
-                                filters=self.filters,
-                                dropout=self.dropout_rnn)
-                R = tf.nn.dropout(R, 1.0 - self.dropout_att)
 
         with tf.variable_scope("Answer_Pointer"):
+            z = tf.squeeze(tf.slice(q_emb, [0, tf.shape(q_emb)[1]-1, 0], [-1, 1, -1]), axis=1) # [bs, 1, dim]->[bs, dim]
             # logits
             if self.use_elmo != 0:
-                elmo_output_feats = ElmoAttention([elmo_context_output, elmo_question_output],
-                                                  self.c_maxlen, self.q_maxlen, self.q_mask, self.dropout)
-                R = tf.concat([R, elmo_output_feats], axis=-1)
-            s = summary_vector(q_emb, self.c_maxlen, mask=self.q_mask)
-            s = tf.nn.dropout(s, 1 - self.dropout)
-            logits1 = start_logits(R, s, mask=self.c_mask, filters=self.filters, name='Start_Pointer')  # [bs, c_len]
-            logits2 = end_logits(R, logits1, s, mask=self.c_mask, filters=self.filters,
-                                 name='End_Pointer')  # [bs, c_len]
+                R = tf.concat([R, elmo_context_output], axis=-1)
+                z = tf.concat([z, elmo_question_output], axis=-1)
+
+            with tf.variable_scope('Answer_Block1'):
+                z = answer_block(R, z, self.filters, self.c_mask, dropout=self.dropout, return_logits=False)
+            with tf.variable_scope('Answer_Block2'):
+                logits1, logits2 = answer_block(R, z, self.filters, self.c_mask, dropout=self.dropout, return_logits=True)
 
         with tf.variable_scope("Loss_Layer"):
             # maximum-likelihood (ML) loss for dataset V2.0

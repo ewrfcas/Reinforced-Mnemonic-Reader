@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensor2tensor.layers.common_layers import conv1d
+from tensor2tensor.layers.common_layers import conv1d, dense
 from tensorflow.contrib.cudnn_rnn import CudnnLSTM
 from tensorflow.contrib.keras import backend
 from tensorflow.contrib.layers import variance_scaling_initializer, l2_regularizer
@@ -54,7 +54,7 @@ def align_block(u, v, c_mask, q_mask, filters=128, dropout=0.0):
 
         # fusion
         uv = tf.concat([u, v_E, u * v_E, u - v_E], axis=-1)
-        x = tf.nn.relu(conv1d(uv, filters, 1, name='Wr'))
+        x = tf.nn.tanh(conv1d(uv, filters, 1, name='Wr'))
         g = tf.nn.sigmoid(conv1d(uv, filters, 1, name='Wg'))
         h = g * x + (1 - g) * u  # [bs, len_c, dim]
 
@@ -67,7 +67,7 @@ def align_block(u, v, c_mask, q_mask, filters=128, dropout=0.0):
 
         # fusion
         hh = tf.concat([h, h_B, h * h_B, h - h_B], axis=-1)
-        x = tf.nn.relu(conv1d(hh, filters, 1, name='Wr'))
+        x = tf.nn.tanh(conv1d(hh, filters, 1, name='Wr'))
         g = tf.nn.sigmoid(conv1d(hh, filters, 1, name='Wg'))
         Z = g * x + (1 - g) * h  # [bs, len_c, dim]
 
@@ -75,6 +75,46 @@ def align_block(u, v, c_mask, q_mask, filters=128, dropout=0.0):
         R = BiLSTM(Z, filters // 2, name='bilstm', dropout=dropout)  # [bs, len_c, dim]
 
     return R
+
+
+def feed_forward(x, name, filters=128, dropout=0.0):
+    x = tf.nn.relu(conv1d(x, filters, 1, name=name+'_FF1'))
+    x = conv1d(x, filters, 1, name=name+'FF2')
+    x = tf.nn.dropout(x, 1 - dropout)
+    return x
+
+
+def answer_block(R, z1, filters, c_mask, dropout=0.0, return_logits=True):
+    # start
+    z_s = tf.tile(tf.expand_dims(z1, axis=1), [1, tf.shape(R)[1], 1])  # [bs, 1*c_len, dim]
+    s = feed_forward(tf.concat([R, z_s, R * z_s], axis=-1), 'st', filters, dropout)  # [bs, c_len, dim]
+    s_logits = exp_mask(tf.squeeze(conv1d(s, 1, 1, name='Ws'), axis=-1), c_mask)  # [bs, c_len]
+    s = tf.expand_dims(tf.nn.softmax(s_logits), axis=-1)  # [bs, c_len]->[bs, c_len, 1]
+
+    # get z2
+    u = tf.squeeze(tf.matmul(R, s, transpose_a=True), axis=-1)  # [bs, dim, 1]->[bs, dim]
+    zu = tf.concat([z1, u, z1 * u, z1 - u], axis=-1)
+    z_s_ = tf.nn.tanh(dense(zu, filters, name='Wru'))
+    g = tf.nn.sigmoid(dense(zu, filters, name='Wgu'))
+    z2 = g * z_s_ + (1 - g) * z1  # [bs, dim]
+
+    # end
+    z_e = tf.tile(tf.expand_dims(z2, axis=1), [1, tf.shape(R)[1], 1])  # [bs, 1*c_len, dim]
+    e = feed_forward(tf.concat([R, z_e, R * z_e], axis=-1), 'ed', filters, dropout)
+    e_logits = exp_mask(tf.squeeze(conv1d(e, 1, 1, name='We'), axis=-1), c_mask) # [bs, c_len]
+    e = tf.expand_dims(tf.nn.softmax(e_logits), axis=-1)
+
+    # get z3
+    v = tf.squeeze(tf.matmul(R, e, transpose_a=True), axis=-1)
+    zv = tf.concat([z2, v, z2 * v, z2 - v], axis=-1)
+    z_e_ = tf.nn.tanh(dense(zv, filters, name='Wrv'))
+    g = tf.nn.sigmoid(dense(zv, filters, name='Wgv'))
+    z3 = g * z_e_ + (1 - g) * z2  # [bs, dim]
+
+    if return_logits:
+        return s_logits, e_logits
+    else:
+        return z3
 
 
 def summary_vector(q_emb, c_maxlen, mask):
